@@ -37,9 +37,9 @@ func NewWeaviateRepo(endpoint, apiKey string, timeout time.Duration, cacheProvid
 	if similarTTL < 0 {
 		similarTTL = 0
 	}
- 	if patternTTL < 0 {
- 		patternTTL = 0
- 	}
+	if patternTTL < 0 {
+		patternTTL = 0
+	}
 	return &WeaviateRepo{
 		endpoint:   strings.TrimRight(endpoint, "/"),
 		apiKey:     apiKey,

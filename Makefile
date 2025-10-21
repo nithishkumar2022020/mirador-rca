@@ -60,7 +60,7 @@ fmt-check:
 	@files=$$(gofmt -l $(GOFILES)); if [ -n "$$files" ]; then \
 		echo "gofmt would reformat:"; echo "$$files"; exit 1; \
 	fi
-	@imports=$$($(GOIMPORTS) -l $(GOFILES)); if [ -n "$$imports" ]; then \
+	@ imports=$$($(GOIMPORTS) -l $(GOFILES)); if [ -n "$$imports" ]; then \
 		echo "$(GOIMPORTS) would reformat:"; echo "$$imports"; exit 1; \
 	fi
 
@@ -135,6 +135,4 @@ localdev-up:
 	@$(LOCALDEV_COMPOSE) up --build
 
 localdev-down:
-	@$(LOCALDEV_COMPOSE) down -v
-
-*** End of File
+	@$(LOCALDEV_COMPOSE) down -v*** End of File

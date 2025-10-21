@@ -1,0 +1,167 @@
+version: "2.0.0"
+title: "Mirador RCA LLM Integration Action Plan"
+description: "Action plan to enhance the Mirador RCA engine with remote LLM inferencing (Mistral 8B via vLLM) for airgapped environments. This plan outlines phases, tasks, dependencies, and success criteria for integrating AI-powered insights into root cause analysis."
+objectives:
+  - Integrate vLLM-based LLM service for enhanced recommendations and natural language explanations.
+  - Maintain airgapped operation with local network vLLM server.
+  - Ensure fallback to heuristic-based RCA if LLM is unavailable.
+  - Improve incident analysis with AI-generated insights.
+phases:
+  - name: "Planning and Design"
+    description: "Define requirements, architecture, and integration points."
+    tasks:
+      - id: "1.1"
+        title: "Review Current Architecture"
+        description: "Analyze existing RCA engine components (engine, extractors, repo) to identify LLM integration points (e.g., recommendations, causality)."
+        assignee: "Dev Team"
+        effort: "2 hours"
+        dependencies: []
+        status: "pending"
+      - id: "1.2"
+        title: "Define LLM Use Cases"
+        description: "Specify how LLM will enhance RCA: e.g., generate NL summaries of correlations, suggest root causes, or explain anomalies."
+        assignee: "Dev Team"
+        effort: "4 hours"
+        dependencies: ["1.1"]
+        status: "pending"
+      - id: "1.3"
+        title: "Design LLM Client Module"
+        description: "Design a Go module for vLLM API calls (OpenAI-compatible), including error handling and timeouts."
+        assignee: "Dev Team"
+        effort: "3 hours"
+        dependencies: ["1.2"]
+        status: "pending"
+      - id: "1.4"
+        title: "Update Configuration Schema"
+        description: "Add LLM settings to config.go (base_url, api_key, model, enabled flag). Implement feature gating with runtime toggles for non-restart changes (e.g., disable LLM via config file watcher)."
+        assignee: "Dev Team"
+        effort: "2 hours"
+        dependencies: ["1.3"]
+        status: "pending"
+    success_criteria:
+      - Architecture diagram updated.
+      - LLM integration points documented.
+      - Config schema finalized with feature gating and hot-reload support.
+  - name: "Implementation"
+    description: "Develop and integrate LLM client and engine enhancements."
+    tasks:
+      - id: "2.1"
+        title: "Implement LLM Client"
+        description: "Create internal/llm/client.go with HTTP client for vLLM API, including request/response structs."
+        assignee: "Dev Team"
+        effort: "6 hours"
+        dependencies: ["1.4"]
+        status: "pending"
+      - id: "2.2"
+        title: "Add Dependencies"
+        description: "Add Go dependencies (e.g., resty for HTTP) via go.mod."
+        assignee: "Dev Team"
+        effort: "1 hour"
+        dependencies: ["2.1"]
+        status: "pending"
+      - id: "2.3"
+        title: "Integrate into Engine"
+        description: "Modify engine/recommend.go and correlate.go to optionally use LLM for enhanced outputs."
+        assignee: "Dev Team"
+        effort: "8 hours"
+        dependencies: ["2.1"]
+        status: "pending"
+      - id: "2.4"
+        title: "Wire LLM in Server"
+        description: "Update api/server.go to initialize LLM client and pass to engine/services."
+        assignee: "Dev Team"
+        effort: "2 hours"
+        dependencies: ["2.3"]
+        status: "pending"
+      - id: "2.6"
+        title: "Implement Config Watcher"
+        description: "Add file watcher (e.g., fsnotify) to reload config on changes without restart, enabling on-the-fly feature toggles (e.g., disable LLM)."
+        assignee: "Dev Team"
+        effort: "3 hours"
+        dependencies: ["2.5"]
+        status: "pending"
+    success_criteria:
+      - LLM client compiles and makes test API calls.
+      - Engine generates LLM-enhanced recommendations.
+      - Config loads LLM settings correctly with hot-reload for feature toggles.
+  - name: "Testing and Validation"
+    description: "Test integration, performance, and reliability."
+    tasks:
+      - id: "3.1"
+        title: "Unit Tests for LLM Client"
+        description: "Write tests for client.go (mock HTTP responses, error cases)."
+        assignee: "Dev Team"
+        effort: "4 hours"
+        dependencies: ["2.1"]
+        status: "pending"
+      - id: "3.2"
+        title: "Integration Tests"
+        description: "Test end-to-end RCA with LLM enabled/disabled in test environment."
+        assignee: "Dev Team"
+        effort: "6 hours"
+        dependencies: ["2.5"]
+        status: "pending"
+      - id: "3.3"
+        title: "Performance Benchmarking"
+        description: "Measure latency impact of LLM calls; ensure p95 SLA (≤4s) with caching."
+        assignee: "Dev Team"
+        effort: "4 hours"
+        dependencies: ["3.2"]
+        status: "pending"
+      - id: "3.4"
+        title: "Airgapped Testing"
+        description: "Validate in airgapped setup with local vLLM server (Mistral 8B)."
+        assignee: "Dev Team"
+        effort: "4 hours"
+        dependencies: ["3.3"]
+        status: "pending"
+    success_criteria:
+      - All tests pass (unit, integration).
+      - Performance meets SLOs.
+      - Fallback works without LLM.
+  - name: "Deployment and Documentation"
+    description: "Prepare for production and document changes."
+    tasks:
+      - id: "4.1"
+        title: "Update Helm Charts"
+        description: "Modify charts/mirador-rca for LLM config and dependencies."
+        assignee: "DevOps"
+        effort: "2 hours"
+        dependencies: ["3.4"]
+        status: "pending"
+      - id: "4.2"
+        title: "Update Documentation"
+        description: "Add LLM integration guide to docs/ (e.g., setup vLLM, config)."
+        assignee: "Dev Team"
+        effort: "3 hours"
+        dependencies: ["4.1"]
+        status: "pending"
+      - id: "4.3"
+        title: "Release Notes"
+        description: "Document changes in CHANGELOG.md for v2.0.0."
+        assignee: "Dev Team"
+        effort: "1 hour"
+        dependencies: ["4.2"]
+        status: "pending"
+      - id: "4.4"
+        title: "Production Deployment"
+        description: "Deploy to staging, validate, then production."
+        assignee: "DevOps"
+        effort: "4 hours"
+        dependencies: ["4.3"]
+        status: "pending"
+    success_criteria:
+      - Helm chart deploys successfully.
+      - Docs updated and accessible.
+      - Release tagged and deployed.
+risks:
+  - "LLM unavailability in airgapped env": Mitigate with fallback logic.
+  - "Performance degradation": Implement caching and async calls.
+  - "Security": Ensure no external API calls; use local network only.
+  - "Config reload issues": Test hot-reload thoroughly to avoid runtime errors.
+timeline: "8-12 weeks"
+total_effort: "71 hours"
+resources:
+  - "vLLM server with Mistral 8B model"
+  - "Go development environment"
+  - "Airgapped test network"

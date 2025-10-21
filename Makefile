@@ -69,22 +69,27 @@ lint:
 	@$(GOLANGCI_LINT) run ./...
 
 vet:
+	@mkdir -p $(GOTMPDIR)
 	@$(GO) vet ./...
 
 test:
+	@mkdir -p $(GOTMPDIR)
 	@$(GO) test ./...
 
 test-cover:
+	@mkdir -p $(GOTMPDIR)
 	@$(GO) test ./... -coverprofile=$(COVER_PROFILE)
 
 build:
 	@mkdir -p $(OUTPUT)
+	@mkdir -p $(GOTMPDIR)
 	@$(GO) build -ldflags "$(LD_FLAGS)" -o $(BUILD_ARTIFACT) ./cmd/rca-engine
 
 clean:
 	@rm -rf $(OUTPUT) $(COVER_PROFILE) $(GOCACHE) $(GOTMPDIR)
 
 tidy:
+	@mkdir -p $(GOTMPDIR)
 	@$(GO) mod tidy
 
 vendor:

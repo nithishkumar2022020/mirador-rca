@@ -10,7 +10,7 @@ BUILD_ARTIFACT := $(OUTPUT)/$(BINARY)
 GIT_DESCRIBE ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LD_FLAGS := -X $(MODULE)/internal/version.Commit=$(GIT_DESCRIBE)
 
-GOFILES := $(shell find . -type f -name '*.go' -not -path './vendor/*' -not -path './.gocache/*')
+GOFILES := $(shell find . -type f -name '*.go' -not -path './vendor/*' -not -path './.gocache/*' -not -path './.gotmp/*' -not -path './internal/grpc/generated/*')
 IMAGE ?= ghcr.io/miradorstack/mirador-rca:$(GIT_DESCRIBE)
 DOCKER ?= docker
 

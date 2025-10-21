@@ -334,7 +334,7 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
-func syntheticMetricSeries(start, end time.Time) []MetricPoint {
+func syntheticMetricSeries(start, end time.Time) []MetricPoint { //nolint:unused
 	if start.IsZero() || end.IsZero() || !end.After(start) {
 		end = time.Now()
 		start = end.Add(-15 * time.Minute)
@@ -355,7 +355,7 @@ func syntheticMetricSeries(start, end time.Time) []MetricPoint {
 	return series
 }
 
-func syntheticLogEntries(start, end time.Time) []LogEntry {
+func syntheticLogEntries(start, end time.Time) []LogEntry { //nolint:unused
 	if start.IsZero() || end.IsZero() || !end.After(start) {
 		end = time.Now()
 		start = end.Add(-15 * time.Minute)

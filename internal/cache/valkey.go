@@ -447,7 +447,7 @@ func backoff(attempt int) time.Duration {
 
 func shouldRetry(err error) bool {
 	netErr, ok := err.(net.Error)
-	return ok && (netErr.Timeout() || netErr.Temporary())
+	return ok && netErr.Timeout()
 }
 
 func hostForTLS(addr string) string {

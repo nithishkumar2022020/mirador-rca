@@ -101,6 +101,7 @@ ci: verify govulncheck
 
 govulncheck:
 	@command -v $(GOVULNCHECK) >/dev/null 2>&1 || { echo "$(GOVULNCHECK) not found; install via 'go install golang.org/x/vuln/cmd/govulncheck@latest'"; exit 1; }
+	@mkdir -p $(GOTMPDIR)
 	@$(GOVULNCHECK) ./...
 
 image: docker-build

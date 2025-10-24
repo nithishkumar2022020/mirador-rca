@@ -141,7 +141,7 @@ helm-package:
 LOCALDEV_COMPOSE ?= docker compose -f $(ROOT)/deployment/localdev/docker-compose.yaml
 
 localdev-up:
-	@$(LOCALDEV_COMPOSE) up --build
+	@$(LOCALDEV_COMPOSE) up -d --build
 
 localdev-down:
 	@$(LOCALDEV_COMPOSE) down -v

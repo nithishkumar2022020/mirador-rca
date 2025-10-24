@@ -77,20 +77,31 @@ jobs:
           key: ${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ hashFiles('**/go.sum') }}
           restore-keys: |
             ${{ runner.os }}-go-${{ env.GO_VERSION }}-
-      - name: Start services
+      - name: Start Valkey
         run: |
-          cd deployment/localdev
-          docker compose up -d valkey weaviate
-          # Wait for services to be ready
-          timeout 60 bash -c 'until docker compose exec -T valkey valkey-cli ping | grep -q PONG; do sleep 1; done'
-          timeout 60 bash -c 'until curl -f http://localhost:8081/v1/meta; do sleep 1; done'
+          docker run -d --name valkey -p 6379:6379 valkey/valkey:8.0-alpine valkey-server --save "" --appendonly no
+      - name: Start Weaviate
+        run: |
+          docker run -d --name weaviate -p 8080:8080 \
+            -e QUERY_DEFAULTS_LIMIT=25 \
+            -e AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
+            -e PERSISTENCE_DATA_PATH=/var/lib/weaviate \
+            -e DEFAULT_VECTORIZER_MODULE=none \
+            -e ENABLE_MODULES=none \
+            -e CLUSTER_HOSTNAME=node1 \
+            -e DISABLE_TELEMETRY=true \
+            semitechnologies/weaviate:1.25.7
+      - name: Wait for services
+        run: |
+          timeout 60 bash -c 'until docker exec valkey valkey-cli ping | grep -q PONG; do sleep 1; done'
+          timeout 60 bash -c 'until curl -f http://localhost:8080/v1/meta; do sleep 1; done'
       - name: Integration tests
         run: make test-integration
       - name: Stop services
         if: always()
         run: |
-          cd deployment/localdev
-          docker compose down -v
+          docker stop valkey weaviate || true
+          docker rm valkey weaviate || true
 
   helm:
     runs-on: ubuntu-latest

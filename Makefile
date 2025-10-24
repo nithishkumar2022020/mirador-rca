@@ -74,7 +74,7 @@ vet:
 
 test:
 	@mkdir -p $(GOTMPDIR)
-	@$(GO) test ./...
+	@$(GO) test $(shell $(GO) list ./... | grep -v test/integration | grep -v test/e2e)
 
 test-cover:
 	@mkdir -p $(GOTMPDIR)

@@ -17,7 +17,7 @@ func TestValkeyConnectivity(t *testing.T) {
 
 func TestWeaviateConnectivity(t *testing.T) {
 	client := &http.Client{Timeout: 5 * time.Second}
-	resp, err := client.Get("http://localhost:8081/v1/meta")
+	resp, err := client.Get("http://localhost:8080/v1/meta")
 	if err != nil {
 		t.Fatalf("Failed to connect to Weaviate: %v", err)
 	}

@@ -78,7 +78,7 @@ test:
 
 test-cover:
 	@mkdir -p $(GOTMPDIR)
-	@$(GO) test ./... -coverprofile=$(COVER_PROFILE)
+	@$(GO) test $(shell $(GO) list ./... | grep -v test/integration | grep -v test/e2e) -coverprofile=$(COVER_PROFILE)
 
 test-integration:
 	@mkdir -p $(GOTMPDIR)

@@ -80,6 +80,10 @@ test-cover:
 	@mkdir -p $(GOTMPDIR)
 	@$(GO) test ./... -coverprofile=$(COVER_PROFILE)
 
+test-integration:
+	@mkdir -p $(GOTMPDIR)
+	@$(GO) test ./test/integration/... -v
+
 build:
 	@mkdir -p $(OUTPUT)
 	@mkdir -p $(GOTMPDIR)
@@ -140,4 +144,4 @@ localdev-up:
 	@$(LOCALDEV_COMPOSE) up --build
 
 localdev-down:
-	@$(LOCALDEV_COMPOSE) down -v*** End of File
+	@$(LOCALDEV_COMPOSE) down -v

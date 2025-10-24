@@ -1,11 +1,11 @@
 server:
-  address: ":50051"
+  address: ":8020"
   metricsAddress: ":2112"
   gracefulTimeout: 10s
 
 clients:
   core:
-    baseURL: "http://core-mock:8080"
+    baseURL: "http://127.0.0.1:8010"
     metricsPath: "/api/v1/rca/metrics"
     logsPath: "/api/v1/rca/logs"
     tracesPath: "/api/v1/rca/traces"
@@ -13,13 +13,13 @@ clients:
     timeout: 3s
 
 weaviate:
-  endpoint: "http://weaviate:8080"
+  endpoint: "http://127.0.0.1:8080"
   apiKey: ""
   timeout: 5s
 
 cache:
   enabled: true
-  addr: "valkey:6379"
+  addr: "127.0.0.1:6379"
   username: ""
   password: ""
   db: 0

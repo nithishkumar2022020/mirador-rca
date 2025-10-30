@@ -99,3 +99,41 @@ GitHub Actions workflows in `.github/workflows` enforce linters, vet/test runs, 
 ## Release process
 
 Follow `docs/release-process.md` for tagging, signing, and promoting releases. The document also references the SLO manifests under `deployment/infra/slo` and infrastructure-as-code assets used to stand up Valkey and Weaviate.
+
+## LLM Integration Roadmap
+
+This project is adding an optional, airgapped LLM (Mistral via vLLM) to augment RCA outputs with natural-language summaries and recommendations. The roadmap below lists the high-level milestones we will complete incrementally; each milestone includes tests/acceptance criteria and will be landed behind a feature branch and PR.
+
+Milestones (high-level)
+
+0. Branch & PR prep
+- Create a feature branch (e.g. `feature/llm-integration-v2`) and a short PR checklist.
+
+1. Config + hot-reload
+- Add `LLMConfig` fields to `internal/config/config.go` and example values in `configs/config.example.yaml`.
+- Implement a file watcher (fsnotify) and store runtime config in an `atomic.Value` so `llm.enabled` can be toggled without restart.
+- Tests: unit tests for config loading; manual smoke to verify hot-reload logs on change.
+
+2. Minimal LLM client + tests
+- Create `internal/llm/client.go` implementing a small OpenAI-compatible client (POST /v1/chat/completions) using `resty` and parsing common response shapes.
+- Add `internal/llm/client_test.go` with mocked `httptest` server tests (success, 500, timeout, malformed JSON).
+- Tests: `go test ./internal/llm` must pass.
+
+3. Safe wiring
+- Initialize the LLM client in `cmd/rca-engine/main.go` (only when enabled) and inject it into the pipeline via a setter to avoid breaking constructors.
+- Tests: service starts with and without LLM configured; pipeline remains functional.
+
+4. Pipeline augmentation with fallback
+- Call the LLM after anchors/timeline are built in `internal/engine/pipeline.go`; on success store `LLMSummary` in `models.CorrelationResult`, on failure log and proceed with existing recommendations.
+- Tests: unit/integration tests mocking the llm server for success/failure; ensure no investigation failures when LLM errors.
+
+5. Docs & Helm values
+- Add `docs/llm-integration.md` with airgapped setup instructions and update Helm `values.yaml` to expose LLM toggles.
+- Acceptance: docs reviewed and helm templates render the LLM config.
+
+6. Hardening & perf
+- Add caching, circuit-breaker limits, instrumentation (llm_call_{total,failures}), and benchmark to ensure p95 latency targets.
+- Tests: performance benchmarks and SLO verification in staging.
+
+See `development/action-plan-v2.0.0.yaml` for the full, detailed plan and task estimates.
+![alt text](unnamed.png)![alt text](Gemini_Generated_Image_j5ccodj5ccodj5cc.png)

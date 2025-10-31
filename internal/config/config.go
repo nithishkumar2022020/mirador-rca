@@ -20,6 +20,24 @@ type Config struct {
 	Logging  LoggingConfig  `yaml:"logging"`
 	Rules    RulesConfig    `yaml:"rules"`
 	Cache    CacheConfig    `yaml:"cache"`
+	LLM      LLMConfig      `yaml:"llm"`
+}
+
+// LLMConfig controls local LLM integration (vLLM / Mistral)
+type LLMConfig struct {
+	Enabled     bool          `yaml:"enabled"`
+	BaseURL     string        `yaml:"baseURL"`
+	APIKey      string        `yaml:"apiKey"`
+	Model       string        `yaml:"model"`
+	Timeout     time.Duration `yaml:"timeout"`
+	MaxTokens   int           `yaml:"maxTokens"`
+	Temperature float64       `yaml:"temperature"`
+	// Caching and circuit-breaker settings
+	CacheEnabled          bool          `yaml:"cacheEnabled"`
+	CacheTTL              time.Duration `yaml:"cacheTTL"`
+	CircuitBreakerEnabled bool          `yaml:"circuitBreakerEnabled"`
+	CBFailureThreshold    uint32        `yaml:"cbFailureThreshold"`
+	CBTimeout             time.Duration `yaml:"cbTimeout"`
 }
 
 // ServerConfig controls gRPC listener behaviour.
@@ -133,6 +151,20 @@ func defaultConfig() Config {
 			WriteTimeout:        500 * time.Millisecond,
 			MaxRetries:          2,
 		},
+		LLM: LLMConfig{
+			Enabled:               false,
+			BaseURL:               "http://vllm.local:8000",
+			APIKey:                "",
+			Model:                 "mistral-8b",
+			Timeout:               4 * time.Second,
+			MaxTokens:             512,
+			Temperature:           0.0,
+			CacheEnabled:          false,
+			CacheTTL:              5 * time.Minute,
+			CircuitBreakerEnabled: true,
+			CBFailureThreshold:    5,
+			CBTimeout:             60 * time.Second,
+		},
 	}
 }
 
@@ -226,6 +258,33 @@ func applyEnvOverrides(cfg *Config) {
 	if v := os.Getenv("MIRADOR_RCA_CACHE_PATTERNS_TTL"); v != "" {
 		if d, err := time.ParseDuration(v); err == nil {
 			cfg.Cache.PatternsTTL = d
+		}
+	}
+	if v := os.Getenv("MIRADOR_RCA_LLM_ENABLED"); v != "" {
+		cfg.LLM.Enabled = strings.EqualFold(v, "true") || strings.EqualFold(v, "1")
+	}
+	if v := os.Getenv("MIRADOR_RCA_LLM_URL"); v != "" {
+		cfg.LLM.BaseURL = v
+	}
+	if v := os.Getenv("MIRADOR_RCA_LLM_MODEL"); v != "" {
+		cfg.LLM.Model = v
+	}
+	if v := os.Getenv("MIRADOR_RCA_LLM_API_KEY"); v != "" {
+		cfg.LLM.APIKey = v
+	}
+	if v := os.Getenv("MIRADOR_RCA_LLM_TIMEOUT"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			cfg.LLM.Timeout = d
+		}
+	}
+	if v := os.Getenv("MIRADOR_RCA_LLM_MAX_TOKENS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.LLM.MaxTokens = n
+		}
+	}
+	if v := os.Getenv("MIRADOR_RCA_LLM_TEMPERATURE"); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			cfg.LLM.Temperature = f
 		}
 	}
 }

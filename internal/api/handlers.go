@@ -45,6 +45,7 @@ func ToProtoCorrelationResult(res models.CorrelationResult) *rcav1.CorrelationRe
 		AffectedServices: append([]string(nil), res.AffectedServices...),
 		Recommendations:  append([]string(nil), res.Recommendations...),
 		CreatedAt:        timestamppb.New(res.CreatedAt),
+		LlmSummary:       res.LLMSummary,
 	}
 	for _, anchor := range res.RedAnchors {
 		proto.RedAnchors = append(proto.RedAnchors, &rcav1.RedAnchor{

@@ -38,3 +38,18 @@ logging:
 
 rules:
   path: "configs/rules/default.yaml"
+
+llm:
+  enabled: false
+  baseURL: "http://vllm.local:8000"
+  apiKey: ""
+  model: "mistral-8b"
+  timeout: 4s
+  maxTokens: 512
+  temperature: 0.0
+  # Optional performance and resilience settings
+  cacheEnabled: false
+  cacheTTL: 5m
+  circuitBreakerEnabled: true
+  cbFailureThreshold: 5
+  cbTimeout: 60s

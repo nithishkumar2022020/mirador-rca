@@ -92,6 +92,94 @@ helm install mirador-rca charts/mirador-rca \
   --set runtimeSecrets.weaviateAPIKey.key=apiKey
 ```
 
+## LLM Integration Status (October 31, 2025)
+
+### Key Changes Implemented
+1. Added LLM configuration with hot-reload support
+   - Base URL, model selection, and feature gate
+   - Cache and circuit breaker settings
+   - Runtime config updates via fsnotify
+
+2. Created LLM client with reliability features
+   - TTL cache implementation
+   - Circuit breaker integration
+   - Prometheus metrics
+   - Timeout and retry handling
+
+3. Pipeline Integration
+   - Added LLMSummary field to results
+   - Integration tests with httptest mock server
+   - Feature-gated LLM calls
+
+### Local Validation Steps
+
+1. First, ensure dependencies are up to date:
+```bash
+go mod tidy
+```
+
+2. Run the core test suite:
+```bash
+go test ./internal/llm -v
+go test ./internal/engine -v
+```
+
+3. Start local development environment:
+```bash
+cd deployment/localdev
+docker-compose up -d
+cd ../..
+```
+
+4. Run smoke test with config:
+```bash
+# Copy example config if needed
+cp configs/config.example.yaml configs/config.yaml
+
+# Run the server
+go run cmd/rca-engine/main.go
+```
+
+5. In another terminal, test an investigation request:
+```bash
+curl -X POST "http://localhost:8080/api/v1/investigate" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "test-service",
+    "startTime": "2025-10-31T00:00:00Z",
+    "endTime": "2025-10-31T01:00:00Z"
+  }'
+```
+
+6. Monitor metrics (in another terminal):
+```bash
+curl http://localhost:8080/metrics | grep llm_
+```
+
+### Configuration Example
+Make sure your `configs/config.yaml` includes these settings:
+```yaml
+llm:
+  enabled: true
+  baseURL: "http://your-llm-service:8000"
+  model: "mistral-7b"
+  timeout: "30s"
+  cache:
+    enabled: true
+    ttl: "1h"
+  circuitBreaker:
+    enabled: true
+    maxFailures: 5
+    resetTimeout: "1m"
+```
+
+### Monitoring
+Key metrics to watch:
+- `llm_requests_total`: Request count by status
+- `llm_request_duration_seconds`: Latency histogram
+- `llm_cache_hits_total`: Cache hit count
+- `llm_circuit_breaker_state`: Current CB state (0=closed, 1=open)
+
 ## CI
 
 GitHub Actions workflows in `.github/workflows` enforce linters, vet/test runs, Helm linting, and a scheduled `govulncheck` scan on pushes and pull requests to `main`.

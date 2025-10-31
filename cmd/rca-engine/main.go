@@ -19,6 +19,7 @@ import (
 	"github.com/miradorstack/mirador-rca/internal/config"
 	"github.com/miradorstack/mirador-rca/internal/engine"
 	"github.com/miradorstack/mirador-rca/internal/extractors"
+	"github.com/miradorstack/mirador-rca/internal/llm"
 	"github.com/miradorstack/mirador-rca/internal/metrics"
 	"github.com/miradorstack/mirador-rca/internal/repo"
 	"github.com/miradorstack/mirador-rca/internal/services"
@@ -35,6 +36,8 @@ func main() {
 		slog.Error("failed to load config", slog.String("path", configPath), slog.Any("error", err))
 		os.Exit(1)
 	}
+	// Store runtime config in the centralized runtime store and start watcher.
+	config.SetRuntimeConfig(cfg)
 
 	logger := utils.NewLogger(cfg.Logging.Level, cfg.Logging.JSON)
 	logger.Info("starting mirador-rca", slog.String("address", cfg.Server.Address))
@@ -107,6 +110,15 @@ func main() {
 		extractors.NewTracesExtractor(),
 	)
 
+	// Initialize LLM client (optional) and attach to pipeline. We create the client
+	// even if disabled so operators can flip the runtime feature flag without restart.
+	// The client implementation uses resty and is safe in air-gapped setups when
+	// configured with local endpoints.
+	if cfg.LLM.BaseURL != "" {
+		llmClient := llm.NewClient(cfg.LLM, logger)
+		pipeline.SetLLMClient(llmClient)
+	}
+
 	rcaService := services.NewRCAService(logger, coreClient, pipeline, weaviateRepo)
 
 	server, err := api.NewServer(cfg.Server, rcaService)
@@ -117,6 +129,12 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+
+	if configPath != "" {
+		if err := config.WatchConfig(ctx, configPath, logger); err != nil {
+			logger.Warn("failed to start config watcher", slog.Any("error", err))
+		}
+	}
 
 	var metricsServer *http.Server
 	if cfg.Server.MetricsAddress != "" {

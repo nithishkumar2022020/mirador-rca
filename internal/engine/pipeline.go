@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/miradorstack/mirador-rca/internal/config"
 	"github.com/miradorstack/mirador-rca/internal/extractors"
 	"github.com/miradorstack/mirador-rca/internal/models"
 	"github.com/miradorstack/mirador-rca/internal/repo"
@@ -37,6 +38,11 @@ type Pipeline struct {
 	weaviate         WeaviateClient
 	rulesEngine      *RuleEngine
 	causalityEngine  *CausalityEngine
+	// llmClient is optional and, when set, used to generate a natural-language
+	// summary of the correlation result if enabled in runtime config.
+	llmClient interface {
+		Summarize(ctx context.Context, prompt string) (string, error)
+	}
 }
 
 // Signals captures the raw inputs required for analysis.
@@ -81,6 +87,13 @@ func NewPipeline(
 		rulesEngine:      rulesEngine,
 		causalityEngine:  causalityEngine,
 	}
+}
+
+// SetLLMClient attaches an LLM client to the pipeline. The client may be nil to disable LLM usage.
+func (p *Pipeline) SetLLMClient(c interface {
+	Summarize(ctx context.Context, prompt string) (string, error)
+}) {
+	p.llmClient = c
 }
 
 // Investigate executes the anomaly detection + ranking flow and returns a correlation result.
@@ -202,6 +215,45 @@ func (p *Pipeline) Analyze(ctx context.Context, req models.InvestigationRequest,
 		RedAnchors:       anchors,
 		Timeline:         timeline,
 		CreatedAt:        time.Now().UTC(),
+	}
+
+	// If an LLM client has been attached and runtime config enables LLM augmentation,
+	// build a concise prompt and attempt to generate an LLMSummary. Failures are
+	// non-fatal: we log and continue returning the result without an LLMSummary.
+	if p.llmClient != nil {
+		rt := config.GetRuntimeConfig()
+		if rt != nil && rt.LLM.Enabled {
+			// Create a short prompt containing root cause and top anchors.
+			var b strings.Builder
+			b.WriteString("Summarize the investigation result in 2-3 sentences.\n")
+			b.WriteString("Root cause: ")
+			b.WriteString(result.RootCause)
+			b.WriteString("\nTop anchors:\n")
+			for i, a := range result.RedAnchors {
+				if i >= 3 {
+					break
+				}
+				b.WriteString("- ")
+				b.WriteString(a.Service)
+				b.WriteString(" ")
+				b.WriteString(a.Selector)
+				b.WriteString(" score=")
+				b.WriteString(fmt.Sprintf("%.2f", a.AnomalyScore))
+				b.WriteString("\n")
+			}
+			timeout := rt.LLM.Timeout
+			if timeout <= 0 {
+				timeout = 5 * time.Second
+			}
+			cctx, cancel := context.WithTimeout(ctx, timeout)
+			defer cancel()
+			summary, err := p.llmClient.Summarize(cctx, b.String())
+			if err != nil {
+				p.logger.Warn("llm summarization failed", slog.Any("error", err))
+			} else {
+				result.LLMSummary = summary
+			}
+		}
 	}
 
 	return result, nil

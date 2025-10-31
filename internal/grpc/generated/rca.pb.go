@@ -284,6 +284,7 @@ type CorrelationResult struct {
 	Timeline         []*TimelineEvent       `protobuf:"bytes,7,rep,name=timeline,proto3" json:"timeline,omitempty"`
 	Recommendations  []string               `protobuf:"bytes,8,rep,name=recommendations,proto3" json:"recommendations,omitempty"`
 	CreatedAt        *timestamppb.Timestamp `protobuf:"bytes,9,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	LlmSummary       string                 `protobuf:"bytes,10,opt,name=llm_summary,json=llmSummary,proto3" json:"llm_summary,omitempty"`
 }
 
 func (x *CorrelationResult) Reset() {
@@ -379,6 +380,13 @@ func (x *CorrelationResult) GetCreatedAt() *timestamppb.Timestamp {
 		return x.CreatedAt
 	}
 	return nil
+}
+
+func (x *CorrelationResult) GetLlmSummary() string {
+	if x != nil {
+		return x.LlmSummary
+	}
+	return ""
 }
 
 type RedAnchor struct {

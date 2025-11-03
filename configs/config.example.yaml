@@ -38,3 +38,8 @@ logging:
 
 rules:
   path: "configs/rules/default.yaml"
+
+llm:
+  enabled: false
+  baseURL: "http://vllm-with-lmcache.internal:8000"
+  timeout: 30s

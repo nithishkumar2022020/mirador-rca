@@ -6,4 +6,8 @@ metadata:
     {{- include "mirador-rca.labels" . | nindent 4 }}
 data:
   config.yaml: |
-    {{- include "mirador-rca.renderConfig" . | nindent 4 }}
+    {{- $config := .Values.config -}}
+    {{- if .Values.vllm.enabled -}}
+    {{- $_ := set $config.llm "enabled" true -}}
+    {{- end -}}
+    {{- toYaml $config | nindent 4 }}

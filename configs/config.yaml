@@ -1,5 +1,7 @@
 server:
-  address: ":50051"
+  address: ":9092"
+  metricsAddress: ":2112"
+  restAddress: ":8080"
   gracefulTimeout: 10s
 
 clients:

@@ -63,6 +63,77 @@ cache:
 
 If `addr` is blank the cache is disabled and requests fall back to direct Weaviate / mirador-core calls.
 
+## LLM Integration with LMCache
+
+mirador-rca supports optional LLM-powered analysis enhancement using vLLM with LMCache integration for heavy caching in airgapped environments with inference cards.
+
+### Local Development
+
+The localdev environment includes a vLLM service with LMCache enabled:
+
+```bash
+cd deployment/localdev
+docker compose up --build
+```
+
+This starts vLLM with:
+- Small model (`facebook/opt-125m`) for testing
+- LMCache enabled with 2GB cache size
+- Local CPU backend for development
+
+### Production Deployment
+
+Enable vLLM with LMCache in the Helm chart:
+
+```bash
+helm install mirador-rca charts/mirador-rca \
+  --set vllm.enabled=true \
+  --set vllm.model="microsoft/DialoGPT-medium" \
+  --set vllm.resources.requests.nvidia\\.com/gpu=1
+```
+
+### Configuration
+
+```yaml
+vllm:
+  enabled: true
+  model: "microsoft/DialoGPT-medium"  # Override for production
+  lmcache:
+    enabled: true
+    maxCacheSize: "10GB"  # Increase for production
+    storageBackend: "LocalCPUBackend"  # Use GPU backend for inference cards
+```
+
+### Benefits
+
+- **Heavy Caching**: LMCache provides efficient KV cache management for LLM inference
+- **Airgapped Ready**: Optimized for environments without internet access
+- **Inference Card Optimized**: Designed for GPU/accelerator-based inference
+- **Fallback Support**: RCA works with or without LLM enhancement
+
+## API
+
+mirador-rca exposes both gRPC and REST APIs for root cause analysis operations.
+
+### gRPC API
+
+The primary API is gRPC, defined in `internal/grpc/proto/rca.proto`. The service runs on the port configured via `server.address` (defaults to `:50051`).
+
+### REST API
+
+A REST API equivalent is available on the port configured via `server.restAddress` (defaults to `:8080`). The REST API is fully compliant with OpenAPI 3.0.3 specifications.
+
+**OpenAPI Specifications:**
+- [YAML format](api/openapi.yaml)
+- [JSON format](api/openapi.json)
+
+**Endpoints:**
+- `POST /api/v1/investigate` - Initiate root cause analysis
+- `GET /api/v1/correlations` - List historical correlations
+- `GET /api/v1/patterns` - Retrieve failure patterns
+- `POST /api/v1/feedback` - Submit user feedback
+- `GET /health` - Health check
+
 ## Metrics & Alerts
 
 mirador-rca exposes Prometheus metrics on the HTTP endpoint configured via `server.metricsAddress` (defaults to `:2112`). The binary registers both the gRPC default metrics (`grpc_server_handled_total`, handling histograms) and custom RCA series:

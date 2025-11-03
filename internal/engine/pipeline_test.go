@@ -34,6 +34,27 @@ func (f *fakeCoreClient) FetchServiceGraph(ctx context.Context, tenantID string,
 	return f.graph, nil
 }
 
+func (f *fakeCoreClient) ExecuteCorrelationQuery(ctx context.Context, tenantID string, query map[string]interface{}) (map[string]interface{}, error) {
+	return map[string]interface{}{
+		"confidence_score": 0.8,
+		"insights": []interface{}{
+			map[string]interface{}{
+				"event": "Cross-service correlation detected",
+			},
+		},
+	}, nil
+}
+
+func (f *fakeCoreClient) ExecuteUnifiedQuery(ctx context.Context, tenantID string, query map[string]interface{}) (map[string]interface{}, error) {
+	return map[string]interface{}{
+		"results": []interface{}{},
+	}, nil
+}
+
+func (f *fakeCoreClient) IsCorrelationEnabled() bool {
+	return true
+}
+
 type fakeWeaviate struct {
 	stored int
 }
@@ -109,6 +130,7 @@ func TestPipelineInvestigate(t *testing.T) {
 		extractors.NewMetricExtractor(),
 		extractors.NewLogsExtractor(),
 		extractors.NewTracesExtractor(),
+		nil, // llmClient
 	)
 
 	req := models.InvestigationRequest{
@@ -167,6 +189,7 @@ func TestPipelineRulesFallback(t *testing.T) {
 		extractors.NewMetricExtractor(),
 		extractors.NewLogsExtractor(),
 		extractors.NewTracesExtractor(),
+		nil, // llmClient
 	)
 
 	req := models.InvestigationRequest{
@@ -228,6 +251,7 @@ func TestPipelineLatencyWithinTarget(t *testing.T) {
 		extractors.NewMetricExtractor(),
 		extractors.NewLogsExtractor(),
 		extractors.NewTracesExtractor(),
+		nil, // llmClient
 	)
 
 	req := models.InvestigationRequest{

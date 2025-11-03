@@ -19,6 +19,7 @@ import (
 	"github.com/miradorstack/mirador-rca/internal/config"
 	"github.com/miradorstack/mirador-rca/internal/engine"
 	"github.com/miradorstack/mirador-rca/internal/extractors"
+	"github.com/miradorstack/mirador-rca/internal/llm"
 	"github.com/miradorstack/mirador-rca/internal/metrics"
 	"github.com/miradorstack/mirador-rca/internal/repo"
 	"github.com/miradorstack/mirador-rca/internal/services"
@@ -75,9 +76,12 @@ func main() {
 		cfg.Clients.Core.LogsPath,
 		cfg.Clients.Core.TracesPath,
 		cfg.Clients.Core.ServiceGraphPath,
+		cfg.Clients.Core.CorrelationPath,
+		cfg.Clients.Core.CorrelationEnabled,
 		cfg.Clients.Core.Timeout,
 		cacheProvider,
 		cfg.Cache.ServiceGraphTTL,
+		cfg.Cache.SimilarIncidentsTTL, // Use similar incidents TTL for correlations
 	)
 
 	weaviateRepo := repo.NewWeaviateRepo(
@@ -96,6 +100,19 @@ func main() {
 	}
 	causalityEngine := engine.NewCausalityEngine(logger)
 
+	llmService, err := llm.NewService(llm.Config{
+		Enabled: cfg.LLM.Enabled,
+		Client: llm.VLLMConfig{
+			BaseURL: cfg.LLM.BaseURL,
+			Timeout: cfg.LLM.Timeout,
+		},
+	}, logger)
+	if err != nil {
+		logger.Error("failed to initialize LLM service", slog.Any("error", err))
+		os.Exit(1)
+	}
+	defer llmService.Close()
+
 	pipeline := engine.NewPipeline(
 		logger,
 		coreClient,
@@ -105,15 +122,10 @@ func main() {
 		extractors.NewMetricExtractor(),
 		extractors.NewLogsExtractor(),
 		extractors.NewTracesExtractor(),
+		llmService,
 	)
 
-	rcaService := services.NewRCAService(logger, coreClient, pipeline, weaviateRepo)
-
-	server, err := api.NewServer(cfg.Server, rcaService)
-	if err != nil {
-		logger.Error("failed to create gRPC server", slog.Any("error", err))
-		os.Exit(1)
-	}
+	rcaService := services.NewRCAService(logger, coreClient, pipeline, weaviateRepo, llmService)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -137,19 +149,32 @@ func main() {
 		}()
 	}
 
-	go func() {
-		if serveErr := server.Start(); serveErr != nil {
-			logger.Error("gRPC server exited", slog.Any("error", serveErr))
-			stop()
+	var restServer *http.Server
+	if cfg.Server.RESTAddress != "" {
+		mux := http.NewServeMux()
+		handler := api.NewRESTHandler(rcaService, logger)
+		mux.HandleFunc("/api/v1/investigate", handler.InvestigateIncident)
+		mux.HandleFunc("/api/v1/correlations", handler.ListCorrelations)
+		mux.HandleFunc("/api/v1/patterns", handler.GetPatterns)
+		mux.HandleFunc("/api/v1/feedback", handler.SubmitFeedback)
+		mux.HandleFunc("/health", handler.HealthCheck)
+		restServer = &http.Server{
+			Addr:         cfg.Server.RESTAddress,
+			Handler:      mux,
+			ReadTimeout:  5 * time.Second,
+			WriteTimeout: 15 * time.Second,
 		}
-	}()
+		go func() {
+			logger.Info("REST server listening", slog.String("address", cfg.Server.RESTAddress))
+			if err := restServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				logger.Error("REST server exited", slog.Any("error", err))
+				stop()
+			}
+		}()
+	}
 
 	<-ctx.Done()
 	logger.Info("shutdown signal received")
-
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.Server.GracefulTimeout)
-	defer cancel()
-	server.Shutdown(shutdownCtx)
 
 	if metricsServer != nil {
 		metricsCtx, cancelMetrics := context.WithTimeout(context.Background(), 5*time.Second)
@@ -157,6 +182,14 @@ func main() {
 			logger.Warn("metrics server shutdown", slog.Any("error", err))
 		}
 		cancelMetrics()
+	}
+
+	if restServer != nil {
+		restCtx, cancelRest := context.WithTimeout(context.Background(), 5*time.Second)
+		if err := restServer.Shutdown(restCtx); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			logger.Warn("REST server shutdown", slog.Any("error", err))
+		}
+		cancelRest()
 	}
 
 	// Give remaining goroutines time to finish logging

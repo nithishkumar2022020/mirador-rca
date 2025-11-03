@@ -1,0 +1,133 @@
+{{- if .Values.vllm.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "mirador-rca.fullname" . }}-vllm
+  labels:
+    {{- include "mirador-rca.labels" . | nindent 4 }}
+    app.kubernetes.io/component: vllm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "mirador-rca.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: vllm
+  template:
+    metadata:
+      labels:
+        {{- include "mirador-rca.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: vllm
+        {{- with .Values.vllm.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.vllm.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- with .Values.vllm.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.vllm.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: vllm
+          image: "{{ .Values.vllm.image.repository }}:{{ .Values.vllm.image.tag }}"
+          imagePullPolicy: {{ .Values.vllm.image.pullPolicy }}
+          {{- with .Values.vllm.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          env:
+            - name: MODEL
+              value: {{ .Values.vllm.model | quote }}
+            {{- if .Values.vllm.lmcache.enabled }}
+            - name: LM_CACHE_ENABLE
+              value: "True"
+            - name: LM_CACHE_MAX_CACHE_SIZE
+              value: {{ .Values.vllm.lmcache.maxCacheSize | quote }}
+            - name: LM_CACHE_STORAGE_BACKEND
+              value: {{ .Values.vllm.lmcache.storageBackend | quote }}
+            - name: LM_CACHE_EVICTION_POLICY
+              value: {{ .Values.vllm.lmcache.evictionPolicy | quote }}
+            {{- end }}
+            {{- range .Values.vllm.extraEnv }}
+            {{ toYaml (list .) | nindent 12 }}
+            {{- end }}
+          {{- with .Values.vllm.extraEnvFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.vllm.port }}
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.vllm.resources | nindent 12 }}
+          volumeMounts:
+            - name: vllm-cache
+              mountPath: /root/.cache/vllm
+            {{- range .Values.vllm.extraVolumeMounts }}
+            {{ toYaml (list .) | nindent 12 }}
+            {{- end }}
+      volumes:
+        - name: vllm-cache
+          emptyDir: {}
+        {{- range .Values.vllm.extraVolumes }}
+        {{ toYaml (list .) | nindent 8 }}
+        {{- end }}
+      {{- with .Values.vllm.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.vllm.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.vllm.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "mirador-rca.fullname" . }}-vllm
+  labels:
+    {{- include "mirador-rca.labels" . | nindent 4 }}
+    app.kubernetes.io/component: vllm
+    {{- with .Values.vllm.service.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with .Values.vllm.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.vllm.service.type }}
+  ports:
+    - port: {{ .Values.vllm.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "mirador-rca.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: vllm
+{{- end }}

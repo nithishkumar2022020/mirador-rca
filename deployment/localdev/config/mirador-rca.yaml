@@ -1,5 +1,5 @@
 server:
-  address: ":8020"
+  address: ":9092"
   metricsAddress: ":2112"
   gracefulTimeout: 10s
 
@@ -38,3 +38,8 @@ logging:
 
 rules:
   path: "configs/rules/default.yaml"
+
+llm:
+  enabled: true
+  baseURL: "http://127.0.0.1:8000"
+  timeout: 30s

@@ -49,32 +49,38 @@ type ServiceGraphEdge struct {
 
 // MiradorCoreClient wraps mirador-core RCA helper APIs for signals.
 type MiradorCoreClient struct {
-	baseURL          string
-	metricsPath      string
-	logsPath         string
-	tracesPath       string
-	serviceGraphPath string
-	httpClient       *http.Client
-	cache            cache.Provider
-	serviceGraphTTL  time.Duration
+	baseURL            string
+	metricsPath        string
+	logsPath           string
+	tracesPath         string
+	serviceGraphPath   string
+	correlationPath    string
+	correlationEnabled bool
+	httpClient         *http.Client
+	cache              cache.Provider
+	serviceGraphTTL    time.Duration
+	correlationTTL     time.Duration
 }
 
 // NewMiradorCoreClient constructs a client targeting the configured mirador-core instance.
-func NewMiradorCoreClient(baseURL, metricsPath, logsPath, tracesPath, serviceGraphPath string, timeout time.Duration, cacheProvider cache.Provider, serviceGraphTTL time.Duration) *MiradorCoreClient {
+func NewMiradorCoreClient(baseURL, metricsPath, logsPath, tracesPath, serviceGraphPath, correlationPath string, correlationEnabled bool, timeout time.Duration, cacheProvider cache.Provider, serviceGraphTTL, correlationTTL time.Duration) *MiradorCoreClient {
 	if cacheProvider == nil {
 		cacheProvider = cache.NoopProvider{}
 	}
 	return &MiradorCoreClient{
-		baseURL:          strings.TrimRight(baseURL, "/"),
-		metricsPath:      metricsPath,
-		logsPath:         logsPath,
-		tracesPath:       tracesPath,
-		serviceGraphPath: serviceGraphPath,
+		baseURL:            strings.TrimRight(baseURL, "/"),
+		metricsPath:        metricsPath,
+		logsPath:           logsPath,
+		tracesPath:         tracesPath,
+		serviceGraphPath:   serviceGraphPath,
+		correlationPath:    correlationPath,
+		correlationEnabled: correlationEnabled,
 		httpClient: &http.Client{
 			Timeout: timeout,
 		},
 		cache:           cacheProvider,
 		serviceGraphTTL: serviceGraphTTL,
+		correlationTTL:  correlationTTL,
 	}
 }
 
@@ -270,6 +276,55 @@ func (c *MiradorCoreClient) FetchServiceGraph(ctx context.Context, tenantID stri
 	return edges, nil
 }
 
+// ExecuteCorrelationQuery executes a correlation query using mirador-core's unified correlation API
+func (c *MiradorCoreClient) ExecuteCorrelationQuery(ctx context.Context, tenantID string, query map[string]interface{}) (map[string]interface{}, error) {
+	if c == nil {
+		return nil, fmt.Errorf("mirador-core client not initialised")
+	}
+	if c.baseURL == "" {
+		return nil, fmt.Errorf("mirador-core base URL not configured")
+	}
+
+	// Add tenant ID to the query
+	query["tenant_id"] = tenantID
+
+	var response map[string]interface{}
+
+	if err := c.postJSON(ctx, c.correlationURL(), query, &response); err != nil {
+		return nil, fmt.Errorf("mirador-core correlation request failed: %w", err)
+	}
+
+	return response, nil
+}
+
+// ExecuteUnifiedQuery executes a unified query using mirador-core's unified query API
+func (c *MiradorCoreClient) ExecuteUnifiedQuery(ctx context.Context, tenantID string, query map[string]interface{}) (map[string]interface{}, error) {
+	if c == nil {
+		return nil, fmt.Errorf("mirador-core client not initialised")
+	}
+	if c.baseURL == "" {
+		return nil, fmt.Errorf("mirador-core base URL not configured")
+	}
+
+	// Add tenant ID to the query
+	query["tenant_id"] = tenantID
+
+	var response map[string]interface{}
+
+	// Use unified query endpoint
+	unifiedQueryURL := c.resolvePath("/api/v1/unified/query")
+	if err := c.postJSON(ctx, unifiedQueryURL, query, &response); err != nil {
+		return nil, fmt.Errorf("mirador-core unified query request failed: %w", err)
+	}
+
+	return response, nil
+}
+
+// IsCorrelationEnabled returns whether correlation features are enabled for this client
+func (c *MiradorCoreClient) IsCorrelationEnabled() bool {
+	return c.correlationEnabled
+}
+
 func serviceGraphCacheKey(tenantID string, start, end time.Time) string {
 	return fmt.Sprintf("servicegraph:%s:%d:%d", tenantID, start.Unix(), end.Unix())
 }
@@ -278,6 +333,7 @@ func (c *MiradorCoreClient) metricsURL() string      { return c.resolvePath(c.me
 func (c *MiradorCoreClient) logsURL() string         { return c.resolvePath(c.logsPath) }
 func (c *MiradorCoreClient) tracesURL() string       { return c.resolvePath(c.tracesPath) }
 func (c *MiradorCoreClient) serviceGraphURL() string { return c.resolvePath(c.serviceGraphPath) }
+func (c *MiradorCoreClient) correlationURL() string  { return c.resolvePath(c.correlationPath) }
 
 func (c *MiradorCoreClient) resolvePath(p string) string {
 	if c.baseURL == "" {

@@ -5,6 +5,7 @@ This Docker Compose stack spins up everything required to exercise `mirador-rca`
 - `core-mock`: a lightweight HTTP stub that mimics the mirador-core RCA endpoints.
 - `valkey`: in-memory cache compatible with the service configuration.
 - `weaviate`: external similarity store (anonymous access enabled).
+- `vllm-lmcache`: vLLM server with LMCache enabled for LLM-powered RCA analysis.
 - `mirador-rca`: the service itself, executed via `go run` against the workspace tree.
 
 ## Prerequisites
@@ -28,6 +29,7 @@ The first boot downloads Go modules; subsequent runs reuse the module cache with
 - Mock mirador-core HTTP APIs: `http://localhost:8080`
 - Weaviate console/API: `http://localhost:8081`
 - Valkey: `localhost:6379`
+- vLLM with LMCache: `http://localhost:8000` (OpenAI-compatible API)
 
 ### Example gRPC Invocation
 
@@ -46,6 +48,22 @@ grpcurl -plaintext -d '{
 ```
 
 The mock core returns deterministic data, so you should receive a correlation response populated with anchors, timeline, and recommendations.
+
+## LLM-Powered RCA Analysis
+
+When enabled, `mirador-rca` integrates with vLLM + LMCache for enhanced root cause analysis:
+
+- **LMCache**: Provides heavy caching for LLM KV caches, optimized for inference cards in airgapped environments
+- **LLM Analysis**: Generates additional insights and recommendations using the configured language model
+- **Fallback Support**: RCA works normally even if LLM service is unavailable
+
+The vLLM service is configured with:
+- Small model (`facebook/opt-125m`) for fast local testing
+- LMCache enabled with 2GB cache size
+- Local CPU backend for development
+- LRU eviction policy
+
+To test LLM features, ensure the vLLM service is healthy before running investigations.
 
 ## Tear Down & Data Reset
 

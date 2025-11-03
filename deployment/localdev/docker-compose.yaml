@@ -8,3 +8,33 @@ services:
     volumes:
       - ../..:/workspace
     network_mode: host
+    depends_on:
+      - vllm-lmcache
+
+  vllm-lmcache:
+    image: vllm/vllm-openai:latest
+    ports:
+      - "8000:8000"
+    environment:
+      - MODEL=facebook/opt-125m  # Small model for localdev
+      - LM_CACHE_ENABLE=True
+      - LM_CACHE_MAX_CACHE_SIZE=2GB
+      - LM_CACHE_STORAGE_BACKEND=LocalCPUBackend
+      - LM_CACHE_EVICTION_POLICY=LRU
+    volumes:
+      - vllm-cache:/root/.cache/vllm
+    command: >
+      --model facebook/opt-125m
+      --host 0.0.0.0
+      --port 8000
+      --max-model-len 1024
+      --enforce-eager
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+volumes:
+  vllm-cache:

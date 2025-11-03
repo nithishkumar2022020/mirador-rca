@@ -14,7 +14,7 @@ func TestFetchServiceGraphCachesResults(t *testing.T) {
 	hits := 0
 	cacheStub := newStubCache()
 	baseURL := "https://example.com"
-	client := NewMiradorCoreClient(baseURL, "/metrics", "/logs", "/traces", "/api/v1/rca/service-graph", time.Second, cacheStub, time.Minute)
+	client := NewMiradorCoreClient(baseURL, "/metrics", "/logs", "/traces", "/api/v1/rca/service-graph", "/api/v1/unified/correlation", true, time.Second, cacheStub, time.Minute, time.Minute)
 	client.httpClient = newTestClient(roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		hits++
 		if req.URL.Path != "/api/v1/rca/service-graph" {

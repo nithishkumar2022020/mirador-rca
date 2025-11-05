@@ -14,6 +14,7 @@ import (
 type Service struct {
 	client Client
 	logger *slog.Logger
+	cache *LLMCache
 }
 
 // Config holds configuration for the LLM service
@@ -23,17 +24,18 @@ type Config struct {
 }
 
 // NewService creates a new LLM service
-func NewService(config Config, logger *slog.Logger) (*Service, error) {
+func NewService(config Config, logger *slog.Logger, registerer prometheus.Registerer) (*Service, error) {
 	if !config.Enabled {
 		return &Service{logger: logger}, nil
 	}
+
 
 	if config.Client.BaseURL == "" {
 		return nil, fmt.Errorf("LLM client base URL is required when LLM is enabled")
 	}
 
-	client := NewVLLMClient(config.Client, logger)
-
+	client := NewVLLMClient(config.Client, logger, registerer)
+	cache := NewCache(1*time.Hour, registerer)
 	// Test the connection
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -46,8 +48,11 @@ func NewService(config Config, logger *slog.Logger) (*Service, error) {
 	return &Service{
 		client: client,
 		logger: logger,
+		cache: cache,
 	}, nil
 }
+
+
 
 // AnalyzeIncident performs LLM-powered RCA analysis
 func (s *Service) AnalyzeIncident(ctx context.Context, incident models.InvestigationRequest, signals models.InvestigationRequest) (string, error) {

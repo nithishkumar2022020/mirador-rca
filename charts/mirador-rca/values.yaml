@@ -98,6 +98,12 @@ config:
     enabled: false
     baseURL: "http://{{ include \"mirador-rca.fullname\" . }}-vllm:8000"
     timeout: 30s
+    model: "microsoft/DialoGPT-medium" # Override for production
+    cacheEnabled: true
+    cacheTTL: "1h"
+    circuitBreakerEnabled: true
+    circuitBreakerMaxFailures: 5
+    circuitBreakerResetTimeout: "1m"
 
 vllm:
   enabled: false
@@ -105,7 +111,6 @@ vllm:
     repository: vllm/vllm-openai
     tag: latest
     pullPolicy: IfNotPresent
-  model: "facebook/opt-125m"  # Small model for testing, override for production
   port: 8000
   service:
     type: ClusterIP

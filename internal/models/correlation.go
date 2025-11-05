@@ -12,6 +12,7 @@ type CorrelationResult struct {
 	RedAnchors       []RedAnchor     `json:"red_anchors"`
 	Timeline         []TimelineEvent `json:"timeline"`
 	Recommendations  []string        `json:"recommendations"`
+    LLMSummary       string          `json:"llm_summary,omitempty"`
 	CreatedAt        time.Time       `json:"created_at"`
 }
 

@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/miradorstack/mirador-rca/internal/config"
 	"github.com/miradorstack/mirador-rca/internal/extractors"
 	"github.com/miradorstack/mirador-rca/internal/models"
 	"github.com/miradorstack/mirador-rca/internal/repo"
@@ -98,10 +97,8 @@ func NewPipeline(
 }
 
 // SetLLMClient attaches an LLM client to the pipeline. The client may be nil to disable LLM usage.
-func (p *Pipeline) SetLLMClient(c interface {
-	Summarize(ctx context.Context, prompt string) (string, error)
-}) {
-	p.llmClient = c
+func (p *Pipeline) SetLLMClient(c LLMClient) {
+    p.llmClient = c
 }
 
 // Investigate executes the anomaly detection + ranking flow and returns a correlation result.
@@ -219,7 +216,7 @@ func (p *Pipeline) Analyze(ctx context.Context, req models.InvestigationRequest,
 
 	timeline = p.appendTopologyEvents(timeline, service, signals.ServiceGraph)
 
-	result := models.CorrelationResult{
+    result := models.CorrelationResult{
 		CorrelationID:    fmt.Sprintf("corr-%d", time.Now().UnixNano()),
 		IncidentID:       req.IncidentID,
 		RootCause:        rootCause,
@@ -231,16 +228,15 @@ func (p *Pipeline) Analyze(ctx context.Context, req models.InvestigationRequest,
 		CreatedAt:        time.Now().UTC(),
 	}
 
-	// Enhance analysis with LLM if available
-	if p.llmClient != nil && p.llmClient.IsEnabled() {
-		if llmAnalysis, err := p.llmClient.AnalyzeIncident(ctx, req, req); err == nil {
-			// Add LLM insights to recommendations
-			result.Recommendations = append(result.Recommendations, fmt.Sprintf("LLM Analysis: %s", llmAnalysis))
-			p.logger.Info("LLM analysis integrated into correlation", slog.String("correlation", result.CorrelationID))
-		} else {
-			p.logger.Warn("LLM analysis failed, proceeding without it", slog.Any("error", err))
-		}
-	}
+    // Enhance analysis with LLM if available
+    if p.llmClient != nil && p.llmClient.IsEnabled() {
+        if llmAnalysis, err := p.llmClient.AnalyzeIncident(ctx, req, req); err == nil {
+            result.LLMSummary = llmAnalysis
+            p.logger.Info("LLM analysis integrated into correlation", slog.String("correlation", result.CorrelationID))
+        } else {
+            p.logger.Warn("LLM analysis failed, proceeding without it", slog.Any("error", err))
+        }
+    }
 
 	return result, nil
 }

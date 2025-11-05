@@ -111,6 +111,8 @@ vllm:
 - **Inference Card Optimized**: Designed for GPU/accelerator-based inference
 - **Fallback Support**: RCA works with or without LLM enhancement
 
+For a full guide, see `docs/llm-integration.md`.
+
 ## API
 
 mirador-rca exposes both gRPC and REST APIs for root cause analysis operations.

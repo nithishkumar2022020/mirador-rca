@@ -106,7 +106,7 @@ func main() {
 		Enabled: cfg.LLM.Enabled,
 		Client: llm.VLLMConfig{
 			BaseURL: cfg.LLM.BaseURL,
-			Timeout: cfg.LLM.Timeout,
+		Timeout: cfg.LLM.Timeout,
 		},
 	}, logger)
 	if err != nil {

@@ -23,27 +23,11 @@ type Config struct {
 	LLM      LLMConfig      `yaml:"llm"`
 }
 
-// LLMConfig controls local LLM integration (vLLM / Mistral)
-type LLMConfig struct {
-	Enabled     bool          `yaml:"enabled"`
-	BaseURL     string        `yaml:"baseURL"`
-	APIKey      string        `yaml:"apiKey"`
-	Model       string        `yaml:"model"`
-	Timeout     time.Duration `yaml:"timeout"`
-	MaxTokens   int           `yaml:"maxTokens"`
-	Temperature float64       `yaml:"temperature"`
-	// Caching and circuit-breaker settings
-	CacheEnabled          bool          `yaml:"cacheEnabled"`
-	CacheTTL              time.Duration `yaml:"cacheTTL"`
-	CircuitBreakerEnabled bool          `yaml:"circuitBreakerEnabled"`
-	CBFailureThreshold    uint32        `yaml:"cbFailureThreshold"`
-	CBTimeout             time.Duration `yaml:"cbTimeout"`
-}
-
-// ServerConfig controls gRPC listener behaviour.
+// ServerConfig controls REST listener behaviour.
 type ServerConfig struct {
 	Address         string        `yaml:"address"`
 	MetricsAddress  string        `yaml:"metricsAddress"`
+	RESTAddress     string        `yaml:"restAddress"`
 	GracefulTimeout time.Duration `yaml:"gracefulTimeout"`
 }
 
@@ -54,12 +38,14 @@ type ClientsConfig struct {
 
 // CoreClientConfig configures access to mirador-core data aggregation APIs.
 type CoreClientConfig struct {
-	BaseURL          string        `yaml:"baseURL"`
-	MetricsPath      string        `yaml:"metricsPath"`
-	LogsPath         string        `yaml:"logsPath"`
-	TracesPath       string        `yaml:"tracesPath"`
-	ServiceGraphPath string        `yaml:"serviceGraphPath"`
-	Timeout          time.Duration `yaml:"timeout"`
+	BaseURL            string        `yaml:"baseURL"`
+	MetricsPath        string        `yaml:"metricsPath"`
+	LogsPath           string        `yaml:"logsPath"`
+	TracesPath         string        `yaml:"tracesPath"`
+	ServiceGraphPath   string        `yaml:"serviceGraphPath"`
+	CorrelationPath    string        `yaml:"correlationPath"`
+	CorrelationEnabled bool          `yaml:"correlationEnabled"`
+	Timeout            time.Duration `yaml:"timeout"`
 }
 
 // WeaviateConfig configures the similarity search cluster.
@@ -97,6 +83,13 @@ type CacheConfig struct {
 	PatternsTTL         time.Duration `yaml:"patternsTTL"`
 }
 
+// LLMConfig controls LLM-powered RCA analysis with LMCache integration.
+type LLMConfig struct {
+	Enabled bool          `yaml:"enabled"`
+	BaseURL string        `yaml:"baseURL"`
+	Timeout time.Duration `yaml:"timeout"`
+}
+
 // Load initialises Config from a YAML file and optional environment overrides.
 func Load(path string) (*Config, error) {
 	if path == "" {
@@ -125,17 +118,20 @@ func Load(path string) (*Config, error) {
 func defaultConfig() Config {
 	return Config{
 		Server: ServerConfig{
-			Address:         ":50051",
+			Address:         ":9092",
 			MetricsAddress:  ":2112",
+			RESTAddress:     ":8080",
 			GracefulTimeout: 10 * time.Second,
 		},
 		Clients: ClientsConfig{
 			Core: CoreClientConfig{
-				MetricsPath:      "/api/v1/rca/metrics",
-				LogsPath:         "/api/v1/rca/logs",
-				TracesPath:       "/api/v1/rca/traces",
-				ServiceGraphPath: "/api/v1/rca/service-graph",
-				Timeout:          5 * time.Second,
+				MetricsPath:        "/api/v1/rca/metrics",
+				LogsPath:           "/api/v1/rca/logs",
+				TracesPath:         "/api/v1/rca/traces",
+				ServiceGraphPath:   "/api/v1/rca/service-graph",
+				CorrelationPath:    "/api/v1/unified/correlation",
+				CorrelationEnabled: true,
+				Timeout:            5 * time.Second,
 			},
 		},
 		Weaviate: WeaviateConfig{Timeout: 5 * time.Second},
@@ -152,18 +148,8 @@ func defaultConfig() Config {
 			MaxRetries:          2,
 		},
 		LLM: LLMConfig{
-			Enabled:               false,
-			BaseURL:               "http://vllm.local:8000",
-			APIKey:                "",
-			Model:                 "mistral-8b",
-			Timeout:               4 * time.Second,
-			MaxTokens:             512,
-			Temperature:           0.0,
-			CacheEnabled:          false,
-			CacheTTL:              5 * time.Minute,
-			CircuitBreakerEnabled: true,
-			CBFailureThreshold:    5,
-			CBTimeout:             60 * time.Second,
+			Enabled: false,
+			Timeout: 30 * time.Second,
 		},
 	}
 }
@@ -174,6 +160,9 @@ func applyEnvOverrides(cfg *Config) {
 	}
 	if v := os.Getenv("MIRADOR_RCA_METRICS_ADDRESS"); v != "" {
 		cfg.Server.MetricsAddress = v
+	}
+	if v := os.Getenv("MIRADOR_RCA_REST_ADDRESS"); v != "" {
+		cfg.Server.RESTAddress = v
 	}
 	if v := os.Getenv("MIRADOR_CORE_BASE_URL"); v != "" {
 		cfg.Clients.Core.BaseURL = v
@@ -189,6 +178,12 @@ func applyEnvOverrides(cfg *Config) {
 	}
 	if v := os.Getenv("MIRADOR_CORE_SERVICE_GRAPH_PATH"); v != "" {
 		cfg.Clients.Core.ServiceGraphPath = v
+	}
+	if v := os.Getenv("MIRADOR_CORE_CORRELATION_PATH"); v != "" {
+		cfg.Clients.Core.CorrelationPath = v
+	}
+	if v := os.Getenv("MIRADOR_CORE_CORRELATION_ENABLED"); v != "" {
+		cfg.Clients.Core.CorrelationEnabled = strings.EqualFold(v, "true") || strings.EqualFold(v, "1")
 	}
 	if v := os.Getenv("MIRADOR_RCA_WEAVIATE_URL"); v != "" {
 		cfg.Weaviate.Endpoint = v
@@ -263,28 +258,12 @@ func applyEnvOverrides(cfg *Config) {
 	if v := os.Getenv("MIRADOR_RCA_LLM_ENABLED"); v != "" {
 		cfg.LLM.Enabled = strings.EqualFold(v, "true") || strings.EqualFold(v, "1")
 	}
-	if v := os.Getenv("MIRADOR_RCA_LLM_URL"); v != "" {
+	if v := os.Getenv("MIRADOR_RCA_LLM_BASE_URL"); v != "" {
 		cfg.LLM.BaseURL = v
-	}
-	if v := os.Getenv("MIRADOR_RCA_LLM_MODEL"); v != "" {
-		cfg.LLM.Model = v
-	}
-	if v := os.Getenv("MIRADOR_RCA_LLM_API_KEY"); v != "" {
-		cfg.LLM.APIKey = v
 	}
 	if v := os.Getenv("MIRADOR_RCA_LLM_TIMEOUT"); v != "" {
 		if d, err := time.ParseDuration(v); err == nil {
 			cfg.LLM.Timeout = d
-		}
-	}
-	if v := os.Getenv("MIRADOR_RCA_LLM_MAX_TOKENS"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			cfg.LLM.MaxTokens = n
-		}
-	}
-	if v := os.Getenv("MIRADOR_RCA_LLM_TEMPERATURE"); v != "" {
-		if f, err := strconv.ParseFloat(v, 64); err == nil {
-			cfg.LLM.Temperature = f
 		}
 	}
 }

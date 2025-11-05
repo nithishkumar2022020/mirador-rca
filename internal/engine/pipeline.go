@@ -20,12 +20,22 @@ type CoreClient interface {
 	FetchLogEntries(ctx context.Context, tenantID, service string, start, end time.Time) ([]repo.LogEntry, error)
 	FetchTraceSpans(ctx context.Context, tenantID, service string, start, end time.Time) ([]repo.TraceSpan, error)
 	FetchServiceGraph(ctx context.Context, tenantID string, start, end time.Time) ([]repo.ServiceGraphEdge, error)
+	ExecuteCorrelationQuery(ctx context.Context, tenantID string, query map[string]interface{}) (map[string]interface{}, error)
+	ExecuteUnifiedQuery(ctx context.Context, tenantID string, query map[string]interface{}) (map[string]interface{}, error)
+	IsCorrelationEnabled() bool
 }
 
 // WeaviateClient describes the Weaviate operations required for the pipeline.
 type WeaviateClient interface {
 	SimilarIncidents(ctx context.Context, tenantID string, symptoms []string, limit int) ([]models.CorrelationResult, error)
 	StoreCorrelation(ctx context.Context, tenantID string, correlation models.CorrelationResult) error
+}
+
+// LLMClient describes the LLM operations for enhanced RCA analysis.
+type LLMClient interface {
+	IsEnabled() bool
+	AnalyzeIncident(ctx context.Context, incident models.InvestigationRequest, signals models.InvestigationRequest) (string, error)
+	EnhanceCorrelation(ctx context.Context, correlation models.CorrelationResult) (string, error)
 }
 
 // Pipeline orchestrates the phase-1 investigation flow.
@@ -38,11 +48,7 @@ type Pipeline struct {
 	weaviate         WeaviateClient
 	rulesEngine      *RuleEngine
 	causalityEngine  *CausalityEngine
-	// llmClient is optional and, when set, used to generate a natural-language
-	// summary of the correlation result if enabled in runtime config.
-	llmClient interface {
-		Summarize(ctx context.Context, prompt string) (string, error)
-	}
+	llmClient        LLMClient
 }
 
 // Signals captures the raw inputs required for analysis.
@@ -63,6 +69,7 @@ func NewPipeline(
 	metricsExtractor *extractors.MetricExtractor,
 	logsExtractor *extractors.LogsExtractor,
 	tracesExtractor *extractors.TracesExtractor,
+	llmClient LLMClient,
 ) *Pipeline {
 	if logger == nil {
 		logger = slog.Default()
@@ -86,6 +93,7 @@ func NewPipeline(
 		weaviate:         weaviate,
 		rulesEngine:      rulesEngine,
 		causalityEngine:  causalityEngine,
+		llmClient:        llmClient,
 	}
 }
 
@@ -185,6 +193,12 @@ func (p *Pipeline) Analyze(ctx context.Context, req models.InvestigationRequest,
 		}
 	}
 
+	// Perform enhanced correlation analysis using mirador-core if enabled
+	correlationScore := 0.0
+	if p.coreClient.IsCorrelationEnabled() {
+		correlationScore = p.performCorrelationAnalysis(ctx, req, service, signals, anchors, timeline)
+	}
+
 	recommendations := p.fetchRecommendations(ctx, req, anchors, timeline)
 	affected := uniqueStrings(append([]string{service}, req.AffectedServices...))
 	affected = uniqueStrings(append(affected, neighborServices(signals.ServiceGraph, service)...))
@@ -209,7 +223,7 @@ func (p *Pipeline) Analyze(ctx context.Context, req models.InvestigationRequest,
 		CorrelationID:    fmt.Sprintf("corr-%d", time.Now().UnixNano()),
 		IncidentID:       req.IncidentID,
 		RootCause:        rootCause,
-		Confidence:       calibrateConfidence(confidence, causalityScore),
+		Confidence:       calibrateConfidence(confidence, causalityScore, correlationScore),
 		AffectedServices: affected,
 		Recommendations:  recommendations,
 		RedAnchors:       anchors,
@@ -217,46 +231,70 @@ func (p *Pipeline) Analyze(ctx context.Context, req models.InvestigationRequest,
 		CreatedAt:        time.Now().UTC(),
 	}
 
-	// If an LLM client has been attached and runtime config enables LLM augmentation,
-	// build a concise prompt and attempt to generate an LLMSummary. Failures are
-	// non-fatal: we log and continue returning the result without an LLMSummary.
-	if p.llmClient != nil {
-		rt := config.GetRuntimeConfig()
-		if rt != nil && rt.LLM.Enabled {
-			// Create a short prompt containing root cause and top anchors.
-			var b strings.Builder
-			b.WriteString("Summarize the investigation result in 2-3 sentences.\n")
-			b.WriteString("Root cause: ")
-			b.WriteString(result.RootCause)
-			b.WriteString("\nTop anchors:\n")
-			for i, a := range result.RedAnchors {
-				if i >= 3 {
-					break
-				}
-				b.WriteString("- ")
-				b.WriteString(a.Service)
-				b.WriteString(" ")
-				b.WriteString(a.Selector)
-				b.WriteString(" score=")
-				b.WriteString(fmt.Sprintf("%.2f", a.AnomalyScore))
-				b.WriteString("\n")
-			}
-			timeout := rt.LLM.Timeout
-			if timeout <= 0 {
-				timeout = 5 * time.Second
-			}
-			cctx, cancel := context.WithTimeout(ctx, timeout)
-			defer cancel()
-			summary, err := p.llmClient.Summarize(cctx, b.String())
-			if err != nil {
-				p.logger.Warn("llm summarization failed", slog.Any("error", err))
-			} else {
-				result.LLMSummary = summary
-			}
+	// Enhance analysis with LLM if available
+	if p.llmClient != nil && p.llmClient.IsEnabled() {
+		if llmAnalysis, err := p.llmClient.AnalyzeIncident(ctx, req, req); err == nil {
+			// Add LLM insights to recommendations
+			result.Recommendations = append(result.Recommendations, fmt.Sprintf("LLM Analysis: %s", llmAnalysis))
+			p.logger.Info("LLM analysis integrated into correlation", slog.String("correlation", result.CorrelationID))
+		} else {
+			p.logger.Warn("LLM analysis failed, proceeding without it", slog.Any("error", err))
 		}
 	}
 
 	return result, nil
+}
+
+// performCorrelationAnalysis executes enhanced correlation analysis using mirador-core
+func (p *Pipeline) performCorrelationAnalysis(ctx context.Context, req models.InvestigationRequest, service string, signals Signals, anchors []models.RedAnchor, timeline []models.TimelineEvent) float64 {
+	correlationQuery := map[string]interface{}{
+		"service":  service,
+		"symptoms": req.Symptoms,
+		"time_range": map[string]interface{}{
+			"start": req.TimeRange.Start.Format(time.RFC3339),
+			"end":   req.TimeRange.End.Format(time.RFC3339),
+		},
+		"anomalies": map[string]interface{}{
+			"metrics": len(anchors) > 0,
+			"logs":    len(signals.Logs) > 0,
+			"traces":  len(signals.Traces) > 0,
+		},
+		"service_graph": signals.ServiceGraph,
+	}
+
+	result, err := p.coreClient.ExecuteCorrelationQuery(ctx, req.TenantID, correlationQuery)
+	if err != nil {
+		p.logger.Warn("mirador-core correlation analysis failed", slog.Any("error", err))
+		return 0.0
+	}
+
+	// Extract confidence score from correlation result
+	score := 0.0
+	if scoreVal, ok := result["confidence_score"].(float64); ok {
+		score = scoreVal
+	}
+
+	// Add correlation insights to timeline if available
+	if insights, ok := result["insights"].([]interface{}); ok {
+		for _, insight := range insights {
+			if insightMap, ok := insight.(map[string]interface{}); ok {
+				if event, ok := insightMap["event"].(string); ok {
+					timelineEvent := models.TimelineEvent{
+						Time:         time.Now().UTC(),
+						Event:        fmt.Sprintf("Correlation: %s", event),
+						Service:      service,
+						Severity:     models.SeverityMedium,
+						AnomalyScore: 0,
+						DataSource:   models.DataTypeMetrics, // Use metrics as correlation data source
+					}
+					// Add to timeline (this will be appended later)
+					_ = timelineEvent // Placeholder for now
+				}
+			}
+		}
+	}
+
+	return score
 }
 
 // PersistResult stores the correlation outcome in the historical repository (best-effort).
@@ -574,10 +612,11 @@ func uniqueStrings(values []string) []string {
 	return result
 }
 
-func calibrateConfidence(base, causality float64) float64 {
+func calibrateConfidence(base, causality, correlation float64) float64 {
 	base = clamp(base, 0, 1)
-	if causality <= 0 {
+	if causality <= 0 && correlation <= 0 {
 		return clamp(base*0.7, 0, 1)
 	}
-	return clamp(base*0.6+causality*0.4, 0, 1)
+	combinedScore := (causality + correlation) / 2.0
+	return clamp(base*0.5+combinedScore*0.5, 0, 1)
 }

@@ -1,202 +1,167 @@
 package llm
 
 import (
+	"bytes"
 	"context"
-	"crypto/sha1"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"time"
-
-	"github.com/go-resty/resty/v2"
-	"github.com/miradorstack/mirador-rca/internal/config"
-	"github.com/sony/gobreaker"
+	"io"
 	"log/slog"
+	"net/http"
+	"time"
 )
 
-// LLMClient defines the behaviour used by the pipeline.
-type LLMClient interface {
-	// Summarize accepts a prompt and returns a short textual summary.
-	Summarize(ctx context.Context, prompt string) (string, error)
+// Client represents an LLM client that can use LMCache for caching
+type Client interface {
+	Generate(ctx context.Context, prompt string, options GenerateOptions) (*GenerationResponse, error)
+	Health(ctx context.Context) error
+	Close() error
 }
 
-// Client is a minimal HTTP LLM client. It speaks a simple chat/completion JSON shape
-// that many vLLM / OpenAI-compatible servers accept. It purposefully keeps
-// dependencies small and uses the stdlib HTTP client so it works in air-gapped envs.
-type Client struct {
-	endpoint string
-	apiKey   string
-	client   *resty.Client
-	logger   *slog.Logger
-	cache    *LLMCache
-	cb       *gobreaker.CircuitBreaker
+// GenerateOptions contains options for LLM generation
+type GenerateOptions struct {
+	MaxTokens   int     `json:"max_tokens,omitempty"`
+	Temperature float64 `json:"temperature,omitempty"`
+	TopP        float64 `json:"top_p,omitempty"`
+	TopK        int     `json:"top_k,omitempty"`
+	Stream      bool    `json:"stream,omitempty"`
 }
 
-// NewClient constructs a new Client using values from the runtime configuration.
-func NewClient(cfg config.LLMConfig, logger *slog.Logger) *Client {
+// GenerationResponse represents the response from LLM generation
+type GenerationResponse struct {
+	Text         string        `json:"text"`
+	Usage        TokenUsage    `json:"usage"`
+	FinishReason string        `json:"finish_reason"`
+	Latency      time.Duration `json:"-"`
+}
+
+// TokenUsage represents token usage statistics
+type TokenUsage struct {
+	PromptTokens     int `json:"prompt_tokens"`
+	CompletionTokens int `json:"completion_tokens"`
+	TotalTokens      int `json:"total_tokens"`
+}
+
+// VLLMClient implements Client for vLLM with LMCache integration
+type VLLMClient struct {
+	baseURL    string
+	httpClient *http.Client
+	logger     *slog.Logger
+}
+
+// VLLMConfig holds configuration for vLLM client
+type VLLMConfig struct {
+	BaseURL string
+	Timeout time.Duration
+}
+
+// NewVLLMClient creates a new vLLM client
+func NewVLLMClient(config VLLMConfig, logger *slog.Logger) *VLLMClient {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	to := cfg.Timeout
-	if to <= 0 {
-		to = 5 * time.Second
-	}
-	rc := resty.New()
-	rc.SetTimeout(to)
-	if cfg.APIKey != "" {
-		rc.SetAuthToken(cfg.APIKey)
-	}
-	// Add a small retry to handle transient errors; retries are conservative to
-	// avoid long tail latency. These are safe in air-gapped setups since they
-	// happen locally against the configured endpoint.
-	rc.SetRetryCount(1)
-	rc.SetRetryWaitTime(100 * time.Millisecond)
-	c := &Client{endpoint: cfg.BaseURL, apiKey: cfg.APIKey, client: rc, logger: logger}
 
-	// optional cache
-	if cfg.CacheEnabled {
-		ttl := cfg.CacheTTL
-		if ttl <= 0 {
-			ttl = 5 * time.Minute
-		}
-		c.cache = NewCache(ttl)
+	return &VLLMClient{
+		baseURL: config.BaseURL,
+		httpClient: &http.Client{
+			Timeout: config.Timeout,
+		},
+		logger: logger,
 	}
-
-	// optional circuit breaker
-	if cfg.CircuitBreakerEnabled {
-		st := gobreaker.Settings{
-			Name:        "llm-client",
-			MaxRequests: 1,
-			Interval:    0,
-			Timeout:     cfg.CBTimeout,
-			ReadyToTrip: func(counts gobreaker.Counts) bool {
-				return counts.ConsecutiveFailures >= cfg.CBFailureThreshold
-			},
-		}
-		c.cb = gobreaker.NewCircuitBreaker(st)
-	}
-
-	return c
 }
 
-// chatRequest is the request payload sent to the LLM endpoint.
-type chatRequest struct {
-	Model       string              `json:"model,omitempty"`
-	Messages    []map[string]string `json:"messages"`
-	MaxTokens   int                 `json:"max_tokens,omitempty"`
-	Temperature float64             `json:"temperature,omitempty"`
+// Generate sends a generation request to the vLLM server
+func (c *VLLMClient) Generate(ctx context.Context, prompt string, options GenerateOptions) (*GenerationResponse, error) {
+	start := time.Now()
+
+	request := map[string]interface{}{
+		"prompt": prompt,
+		"stream": options.Stream,
+	}
+
+	// Add optional parameters
+	if options.MaxTokens > 0 {
+		request["max_tokens"] = options.MaxTokens
+	}
+	if options.Temperature > 0 {
+		request["temperature"] = options.Temperature
+	}
+	if options.TopP > 0 {
+		request["top_p"] = options.TopP
+	}
+	if options.TopK > 0 {
+		request["top_k"] = options.TopK
+	}
+
+	requestBody, err := json.Marshal(request)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/generate", bytes.NewReader(requestBody))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("vLLM request failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var vllmResponse struct {
+		Text         string     `json:"text"`
+		Usage        TokenUsage `json:"usage"`
+		FinishReason string     `json:"finish_reason"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&vllmResponse); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	response := &GenerationResponse{
+		Text:         vllmResponse.Text,
+		Usage:        vllmResponse.Usage,
+		FinishReason: vllmResponse.FinishReason,
+		Latency:      time.Since(start),
+	}
+
+	c.logger.Debug("LLM generation completed",
+		slog.Duration("latency", response.Latency),
+		slog.Int("prompt_tokens", response.Usage.PromptTokens),
+		slog.Int("completion_tokens", response.Usage.CompletionTokens))
+
+	return response, nil
 }
 
-// chatResponse is a lightweight shape covering common OpenAI-like responses.
-type chatResponse struct {
-	Choices []struct {
-		Message struct {
-			Content string `json:"content"`
-		} `json:"message"`
-		Text string `json:"text"` // some servers use choices[].text
-	} `json:"choices"`
+// Health checks the health of the vLLM server
+func (c *VLLMClient) Health(ctx context.Context) error {
+	req, err := http.NewRequestWithContext(ctx, "GET", c.baseURL+"/health", nil)
+	if err != nil {
+		return fmt.Errorf("failed to create health request: %w", err)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("health check failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("vLLM health check failed with status %d", resp.StatusCode)
+	}
+
+	return nil
 }
 
-// Summarize sends the prompt to the configured LLM endpoint and returns the textual reply.
-func (c *Client) Summarize(ctx context.Context, prompt string) (string, error) {
-	if c == nil {
-		return "", fmt.Errorf("llm client not configured")
-	}
-	// Build payload
-	payload := chatRequest{
-		Model:     "gpt-like",
-		Messages:  []map[string]string{{"role": "user", "content": prompt}},
-		MaxTokens: 200,
-	}
-
-	// compute cache key and check cache first
-	key := prompt
-	if c.cache != nil {
-		// include a tiny fingerprint of model/params
-		h := sha1.New()
-		h.Write([]byte(prompt))
-		h.Write([]byte("|"))
-		h.Write([]byte("model:"))
-		h.Write([]byte(""))
-		k := hex.EncodeToString(h.Sum(nil))
-		if v, ok := c.cache.Get(k); ok {
-			requestsTotal.WithLabelValues("cache_hit").Inc()
-			return v, nil
-		}
-		key = k
-	}
-
-	// make request (possibly through circuit breaker)
-	doRequest := func() (interface{}, error) {
-		start := time.Now()
-		requestsTotal.WithLabelValues("attempt").Inc()
-		resp, err := c.client.R().SetContext(ctx).SetHeader("Content-Type", "application/json").SetBody(payload).Post(c.endpoint)
-		latency := time.Since(start).Seconds()
-		requestLatency.Observe(latency)
-		if err != nil {
-			requestsTotal.WithLabelValues("error").Inc()
-			c.logger.Warn("llm request failed", slog.Any("error", err))
-			return nil, err
-		}
-		body := resp.Body()
-		if resp.StatusCode() < 200 || resp.StatusCode() >= 300 {
-			requestsTotal.WithLabelValues("error").Inc()
-			c.logger.Warn("llm endpoint returned non-2xx", slog.Int("status", resp.StatusCode()), slog.String("body", string(body)))
-			return nil, fmt.Errorf("llm returned status %d", resp.StatusCode())
-		}
-		requestsTotal.WithLabelValues("success").Inc()
-		return body, nil
-	}
-
-	var bodyBytes []byte
-	if c.cb != nil {
-		res, err := c.cb.Execute(func() (interface{}, error) {
-			return doRequest()
-		})
-		if err != nil {
-			c.logger.Warn("llm request failed (circuit)", slog.Any("error", err))
-			return "", err
-		}
-		if b, ok := res.([]byte); ok {
-			bodyBytes = b
-		} else {
-			// attempt to coerce
-			if s, ok := res.(string); ok {
-				bodyBytes = []byte(s)
-			}
-		}
-	} else {
-		res, err := doRequest()
-		if err != nil {
-			return "", err
-		}
-		if b, ok := res.([]byte); ok {
-			bodyBytes = b
-		}
-	}
-
-	var cr chatResponse
-	if err := json.Unmarshal(bodyBytes, &cr); err != nil {
-		// if unmarshal fails, return raw body as fallback
-		c.logger.Debug("failed to parse llm response, returning raw body", slog.Any("error", err))
-		return string(bodyBytes), nil
-	}
-
-	if len(cr.Choices) > 0 {
-		// prefer message.content if present, otherwise choices[].text
-		if cr.Choices[0].Message.Content != "" {
-			if c.cache != nil {
-				c.cache.Set(key, cr.Choices[0].Message.Content)
-			}
-			return cr.Choices[0].Message.Content, nil
-		}
-		if cr.Choices[0].Text != "" {
-			if c.cache != nil {
-				c.cache.Set(key, cr.Choices[0].Text)
-			}
-			return cr.Choices[0].Text, nil
-		}
-	}
-	// empty choice -> return empty string
-	return "", nil
+// Close closes the HTTP client
+func (c *VLLMClient) Close() error {
+	c.httpClient.CloseIdleConnections()
+	return nil
 }

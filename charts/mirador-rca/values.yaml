@@ -24,7 +24,7 @@ securityContext: {}
 
 service:
   type: ClusterIP
-  port: 50051
+  port: 9092
   annotations: {}
   labels: {}
 
@@ -67,7 +67,7 @@ affinity: {}
 
 config:
   server:
-    address: ":50051"
+    address: ":9092"
     metricsAddress: ":2112"
     gracefulTimeout: 10s
   clients:
@@ -94,6 +94,46 @@ config:
     json: true
   rules:
     path: "/etc/mirador/rules/default.yaml"
+  llm:
+    enabled: false
+    baseURL: "http://{{ include \"mirador-rca.fullname\" . }}-vllm:8000"
+    timeout: 30s
+
+vllm:
+  enabled: false
+  image:
+    repository: vllm/vllm-openai
+    tag: latest
+    pullPolicy: IfNotPresent
+  model: "facebook/opt-125m"  # Small model for testing, override for production
+  port: 8000
+  service:
+    type: ClusterIP
+    annotations: {}
+    labels: {}
+  resources:
+    requests:
+      cpu: 500m
+      memory: 2Gi
+      nvidia.com/gpu: 0  # Set to 1+ for GPU-enabled deployments
+    limits:
+      cpu: 2
+      memory: 8Gi
+      nvidia.com/gpu: 0
+  lmcache:
+    enabled: true
+    maxCacheSize: "2GB"
+    storageBackend: "LocalCPUBackend"
+    evictionPolicy: "LRU"
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  podSecurityContext: {}
+  securityContext: {}
+  extraEnv: []
+  extraEnvFrom: []
+  extraVolumes: []
+  extraVolumeMounts: []
 
 runtimeSecrets:
   weaviateAPIKey:

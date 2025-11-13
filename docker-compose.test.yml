@@ -1,0 +1,20 @@
+version: '3.8'
+
+services:
+  vllm-server:
+    image: vllm/vllm-openai:latest
+    ports:
+      - "8000:8000"
+    environment:
+      - MODEL=meta-llama/Llama-2-7b-chat-hf
+      - HOST=0.0.0.0
+      - PORT=8000
+    volumes:
+      - ~/.cache/huggingface/hub:/root/.cache/huggingface/hub
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]

@@ -17,6 +17,24 @@ coverage.*
 *.coverprofile
 profile.cov
 coverage.out
+coverage.html
+
+# Test data and fixtures
+testdata/
+fixtures/
+
+# Test output and logs
+test-results/
+*.log
+
+# Temporary test files
+*.tmp
+*.bak
+*~
+
+# Local development environment files
+.env.local
+.env.*.local
 
 # Build artifacts
 bin/

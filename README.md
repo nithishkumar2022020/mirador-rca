@@ -45,7 +45,23 @@ make docker-build IMAGE=ghcr.io/your-org/mirador-rca:$(git rev-parse --short HEA
 make docker-push  IMAGE=ghcr.io/your-org/mirador-rca:$(git rev-parse --short HEAD)
 ```
 
-Configuration fields are documented in `configs/config.example.yaml`.
+## Configuration
+
+### LLM Configuration
+
+The service supports configuration for LLM-powered RCA analysis. Here's an example configuration:
+
+```yaml
+llm:
+  enabled: true  # Enable or disable LLM-powered analysis
+  watch: true    # Watch for config file changes
+  baseURL: "http://localhost:8000"  # Base URL of the LLM service
+  timeout: 30s   # Timeout for LLM requests
+```
+
+### Full Configuration
+
+All configuration fields are documented in `configs/config.example.yaml`.
 
 ## Valkey caching
 
@@ -135,6 +151,24 @@ A REST API equivalent is available on the port configured via `server.restAddres
 - `GET /api/v1/patterns` - Retrieve failure patterns
 - `POST /api/v1/feedback` - Submit user feedback
 - `GET /health` - Health check
+
+## Testing
+
+### Unit Tests
+
+Run unit tests with:
+
+```bash
+go test -v ./internal/llm/...
+```
+
+### Integration Tests
+
+Integration tests require the `test` build tag and can be run with:
+
+```bash
+go test -v -tags=test ./internal/llm/...
+```
 
 ## Metrics & Alerts
 

@@ -85,9 +85,10 @@ type CacheConfig struct {
 
 // LLMConfig controls LLM-powered RCA analysis with LMCache integration.
 type LLMConfig struct {
-	Enabled bool          `yaml:"enabled"`
-	BaseURL string        `yaml:"baseURL"`
-	Timeout time.Duration `yaml:"timeout"`
+	Enabled     bool          `yaml:"enabled"` // Enable/disable LLM integration
+	ConfigWatch bool          `yaml:"watch"`   // Enable/disable config file watching
+	BaseURL     string        `yaml:"baseURL"` // Base URL of the LLM service
+	Timeout     time.Duration `yaml:"timeout"` // Timeout for LLM requests
 }
 
 // Load initialises Config from a YAML file and optional environment overrides.

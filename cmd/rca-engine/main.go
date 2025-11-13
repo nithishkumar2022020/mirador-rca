@@ -102,8 +102,10 @@ func main() {
 	}
 	causalityEngine := engine.NewCausalityEngine(logger)
 
+	// Initialize LLM service
 	llmService, err := llm.NewService(llm.Config{
-		Enabled: cfg.LLM.Enabled,
+		Enabled:     cfg.LLM.Enabled,
+		ConfigWatch: cfg.LLM.ConfigWatch,
 		Client: llm.VLLMConfig{
 			BaseURL: cfg.LLM.BaseURL,
 		Timeout: cfg.LLM.Timeout,
@@ -114,6 +116,15 @@ func main() {
 		os.Exit(1)
 	}
 	defer llmService.Close()
+
+	// Start config watcher if enabled
+	if cfg.LLM.Enabled && cfg.LLM.ConfigWatch && configPath != "" {
+		if err := llmService.WatchConfig(configPath); err != nil {
+			logger.Warn("failed to start config watcher", slog.Any("error", err))
+		} else {
+			logger.Info("watching config file for changes", slog.String("path", configPath))
+		}
+	}
 
 	pipeline := engine.NewPipeline(
 		logger,

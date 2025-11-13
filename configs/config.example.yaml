@@ -40,6 +40,7 @@ rules:
   path: "configs/rules/default.yaml"
 
 llm:
-  enabled: false
-  baseURL: "http://vllm-with-lmcache.internal:8000"
-  timeout: 30s
+  enabled: false    # Enable/disable LLM integration
+  watch: true      # Watch for config file changes and reload automatically
+  baseURL: "http://localhost:8000"  # Base URL of the LLM service
+  timeout: 30s     # Timeout for LLM API requests
